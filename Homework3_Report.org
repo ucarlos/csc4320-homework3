@@ -1,0 +1,19 @@
+#+AUTHOR: Ulysses Carlos
+#+TITLE: CSC 4310 Homework 2 Report
+#+DATE: <2020-10-09 Fri>
+#+latex_class_options: [13pt]
+#+LaTeX_HEADER: \usepackage[T1]{fontenc}
+#+LaTeX_HEADER: \usepackage{mathpazo}
+#+LaTeX_HEADER: \linespread{1.05}
+#+LATEX_HEADER: \usepackage[margin=1.25in]{geometry}
+#+LaTeX_HEADER: \usepackage[scaled]{helvet}
+#+LaTeX_HEADER: \usepackage[parameters]{listings}
+#+LaTex_HEADER: \usepackage{float}
+#+LATEX: \newpage
+* Homework
+** Source Code
+#+begin_code
+\lstinputlisting[language=c++]{Homework3.c}
+
+#+end_code
+** Screenshots

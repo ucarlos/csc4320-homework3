@@ -5,6 +5,7 @@
 #define BUFFER_SIZE (5)
 // Struct Declaration
 typedef int buffer_item;
+const buffer_item empty_val = -1;
 
 // Struct Definition
 int insert_item(buffer_item item);

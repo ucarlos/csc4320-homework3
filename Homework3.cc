@@ -41,6 +41,8 @@ buffer_item current_consumer{consumer_queue_end};
 
 //
 sem_t *semaphore;
+pthread_mutex_t producer_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t consumer_mutex = PTHREAD_MUTEX_INITIALIZER;
 //------------------------------------------------------------------------------
 // Function declarations
 //------------------------------------------------------------------------------
@@ -143,20 +145,33 @@ int remove_item(buffer_item *item){
 //------------------------------------------------------------------------------
 void * producer(void *arg){
     buffer_item item;
+    int sleep_time;
     while (true) {
 	// Sleep for random period of time
-	sleep(rand() % SLEEP_MAX);
+	// sem_wait(semaphore);
+	
+	sleep_time = rand() % SLEEP_MAX;
+	pthread_mutex_lock(&producer_mutex);
+	cerr << "Producer " << pthread_self() << " "
+	     << "Sleeping for " << sleep_time << " seconds.\n";
+	pthread_mutex_unlock(&producer_mutex);
+	// sem_post(semaphore);
+	sleep(sleep_time);
 	// Generate random number:
-	item = rand() % MAX_VAL + MIN_VAL;
 
 
-	// Acquire the semaphore
 	sem_wait(semaphore);
+	item = rand() % MAX_VAL + MIN_VAL;
+	// Acquire the semaphore
+
 	if (!insert_item(item)){
 	    printf("Producer %u: Produced %d at Position %d\t",
 		   (unsigned) pthread_self(), item, current_producer - 1);
 	    print_dequeue(dequeue);
 	}
+	else
+	    cerr << "Something went wrong with insert_item\n";
+		
 
 	// Release the semaphore
 	sem_post(semaphore);
@@ -169,22 +184,33 @@ void * producer(void *arg){
 //------------------------------------------------------------------------------
 void * consumer(void *arg){
     buffer_item item;
-
+    int sleep_time;
     while (true) {
 	// Sleep for random period of time
-	sleep(rand() % SLEEP_MAX);
+	// sem_wait(semaphore);
+	sleep_time = rand() % SLEEP_MAX;
+	pthread_mutex_lock(&consumer_mutex);
+	cerr << "Consumer " << pthread_self() << " sleeping for "
+	     << sleep_time << " seconds.\n";
+	pthread_mutex_lock(&consumer_mutex);
+	// sem_post(semaphore);
+	sleep(sleep_time);
 	// Acquire the semaphore
-	sem_wait(semaphore);
-	
+
+	// sem_wait(semaphore);
+	pthread_mutex_lock(&consumer_mutex);
 	if (!remove_item(&item)){
 	    printf("Consumer %u: Consumed %d at Position %d\t",
 		   (unsigned) pthread_self(), (int)item, current_consumer);
 	    // Now print array:
 	    print_dequeue(dequeue);
 	}
+	else
+	    cerr << "Something went wrong with remove_item\n";
 
 	// Release the semaphore
-	sem_post(semaphore);
+	// sem_post(semaphore);
+	pthread_mutex_unlock(&consumer_mutex);
 
     }
 
@@ -247,23 +273,30 @@ int main(int argc, char *argv[]){
 	exit(EXIT_FAILURE);
     }
     
-    //Initialize the semaphore:
-    semaphore = sem_open("Test", O_CREAT, 0666, 1);
+    //Initialize the semaphore and any mutexes:
+    semaphore = sem_open("Homework3_Semaphore", O_CREAT, 0666, 1);
+    pthread_mutex_init(&producer_mutex, nullptr);
+    pthread_mutex_init(&consumer_mutex, nullptr);
+    
     // Now do the stuff
     srand(time(nullptr));
-    
+
+    cout << "Creating " << producer_num << " producer(s) and "
+	 << consumer_num << " consumer(s).\n";
     // Create Producer and Consumer arrays:
     vector<pthread_t> producer_list(producer_num);
     vector<pthread_t> consumer_list(consumer_num);
 
 
     // Create pthreads for Producer
+    
+
     for (int i = 0; i < producer_num; i++)
 	pthread_create(&producer_list[i], nullptr, producer, nullptr);
 
-    // Create pthreads for Consumer
     for (int i = 0; i < consumer_num; i++)
 	pthread_create(&consumer_list[i], nullptr, consumer, nullptr);
+    
 
     // Now close each list
     for (int i = 0; i < producer_num; i++)
@@ -274,5 +307,5 @@ int main(int argc, char *argv[]){
     // Sleep for specified time and exit
     
     sleep(sleep_time);
-    
+    sem_destroy(semaphore);
 }

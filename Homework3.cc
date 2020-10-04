@@ -10,11 +10,14 @@
 #include <iostream>
 #include <string>
 #include <array>
+#include <vector>
 #include <pthread.h>
+#include <fcntl.h>
 #include <semaphore.h>
 #include "./Buffer.h"
 #include <cstdlib>
 #include <ctime>
+#include <unistd.h>
 using namespace std;
 
 
@@ -36,6 +39,8 @@ const buffer_item consumer_queue_end = 0;
 buffer_item current_producer{consumer_queue_end};
 buffer_item current_consumer{consumer_queue_end};
 
+//
+sem_t *semaphore;
 //------------------------------------------------------------------------------
 // Function declarations
 //------------------------------------------------------------------------------
@@ -61,7 +66,7 @@ bool dequeue_is_empty(const array<buffer_item, BUFFER_SIZE> &deq){
 int find_farthest_index(const array<buffer_item, BUFFER_SIZE> &dequeue){
 
     for (int i = producer_queue_end; i >= 0; i--)
-    	if (dequeue.at(i) != empty_item) return i + 1;
+    	if (dequeue.at(i) != empty_val) return i + 1;
 
     return BUFFER_SIZE; // If the dequeue is full.
 }
@@ -73,13 +78,17 @@ int find_farthest_index(const array<buffer_item, BUFFER_SIZE> &dequeue){
 int find_closest_index(const array<buffer_item, BUFFER_SIZE> &dequeue){
 
     for (int i = consumer_queue_end; i < dequeue.size(); i++)
-	if (dequeue.at(i) != empty_item) return i - 1;
+	if (dequeue.at(i) != empty_val) return i - 1;
+
+    return -1;
 }
+
 //------------------------------------------------------------------------------
 // insert_item(): The producer inserts an item into the deque. If successful,
 // the function returns 0. Otherwise it returns -1.
 //------------------------------------------------------------------------------
 int insert_item(buffer_item item){
+    
     if (find_farthest_index(dequeue) == BUFFER_SIZE){
 	fprintf(stderr, "Error: Cannot insert another item into this queue.\n");
 	return FAILURE;
@@ -93,7 +102,7 @@ int insert_item(buffer_item item){
     }
     
     static bool same_distance = ((current_consumer - consumer_queue_end) ==
-			  (producer_queue_end - current_producer));
+				 (producer_queue_end - current_producer));
     
     if (same_distance){
 	// Remove the left most item, and then insert from the right.
@@ -114,7 +123,7 @@ int insert_item(buffer_item item){
 int remove_item(buffer_item *item){
     if (dequeue_is_empty(dequeue)){
 	fprintf(stderr, "ERROR: Cannot consume in a empty dequeue.\n");
-	current_consumer = consumer_qeueue_end;
+	current_consumer = consumer_queue_end;
 	return FAILURE;
     }
 
@@ -127,6 +136,7 @@ int remove_item(buffer_item *item){
 	return SUCCESS;
     }
 
+    return FAILURE;
 }
 //------------------------------------------------------------------------------
 // Producer():
@@ -139,14 +149,18 @@ void * producer(void *arg){
 	// Generate random number:
 	item = rand() % MAX_VAL + MIN_VAL;
 
+
+	// Acquire the semaphore
+	sem_wait(semaphore);
 	if (!insert_item(item)){
 	    printf("Producer %u: Produced %d at Position %d\t",
 		   (unsigned) pthread_self(), item, current_producer - 1);
 	    print_dequeue(dequeue);
 	}
+
+	// Release the semaphore
+	sem_post(semaphore);
     }
-
-
     
 }
 
@@ -159,12 +173,18 @@ void * consumer(void *arg){
     while (true) {
 	// Sleep for random period of time
 	sleep(rand() % SLEEP_MAX);
-	if (!remove_item(item)){
+	// Acquire the semaphore
+	sem_wait(semaphore);
+	
+	if (!remove_item(&item)){
 	    printf("Consumer %u: Consumed %d at Position %d\t",
-		   (unsigned) pthread_self(), item);
+		   (unsigned) pthread_self(), (int)item, current_consumer);
 	    // Now print array:
 	    print_dequeue(dequeue);
 	}
+
+	// Release the semaphore
+	sem_post(semaphore);
 
     }
 
@@ -211,9 +231,10 @@ int main(int argc, char *argv[]){
 	exit(EXIT_FAILURE);
     }
 
-    int sleep_time = atoi(argv[1]);
+    const int sleep_time = atoi(argv[1]);
     int producer_num = atoi(argv[2]);
     int consumer_num = atoi(argv[3]);
+
 
     if (sleep_time < 0){
 	fprintf(stderr, "Error: Cannot have a negative sleep time.\n");
@@ -226,15 +247,32 @@ int main(int argc, char *argv[]){
 	exit(EXIT_FAILURE);
     }
     
-
+    //Initialize the semaphore:
+    semaphore = sem_open("Test", O_CREAT, 0666, 1);
     // Now do the stuff
     srand(time(nullptr));
     
     // Create Producer and Consumer arrays:
-    array<pthread_t, producer_num> producer_list;
-    array<pthread_t, consumer_num> consumer_list;
+    vector<pthread_t> producer_list(producer_num);
+    vector<pthread_t> consumer_list(consumer_num);
+
+
+    // Create pthreads for Producer
+    for (int i = 0; i < producer_num; i++)
+	pthread_create(&producer_list[i], nullptr, producer, nullptr);
+
+    // Create pthreads for Consumer
+    for (int i = 0; i < consumer_num; i++)
+	pthread_create(&consumer_list[i], nullptr, consumer, nullptr);
+
+    // Now close each list
+    for (int i = 0; i < producer_num; i++)
+	pthread_join(producer_list[i], nullptr);
+
+    for (int i = 0; i < consumer_num; i++)
+	pthread_join(consumer_list[i], nullptr);
+    // Sleep for specified time and exit
     
-    // Sleep for specified time
     sleep(sleep_time);
     
 }

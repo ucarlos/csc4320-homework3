@@ -23,11 +23,6 @@
 #include <unistd.h>
 using namespace std;
 
-
-//Undefine macros for this program
-#undef CONSUMER_QUEUE_END
-#undef PRODUCER_QUEUE_END
-
 #define SUCCESS (0)
 #define FAILURE (1)
 #define SLEEP_MAX (4)
@@ -50,12 +45,6 @@ pthread_mutex_t buffer_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Handles when to kill all producer and consumer threads
 bool all_threads_active{true};
-
-//------------------------------------------------------------------------------
-// Function declarations
-//------------------------------------------------------------------------------
-void print_dequeue(array<buffer_item, BUFFER_SIZE> &dequeue);
-
 
 //------------------------------------------------------------------------------
 // Functions to print producer and consumer messages
@@ -128,7 +117,7 @@ int insert_item(buffer_item item){
     // auto dequeue_debug = dequeue; // For debugging
     int p_index = find_farthest_index(dequeue);
     if (p_index == BUFFER_SIZE){
-	fprintf(stderr, "Producer %lu: Cannot add to dequeue (Dequeue Full)\t",
+	fprintf(stderr, "Producer %lu: Cannot add to full dequeue\t",
 		pthread_self());
 	print_dequeue(dequeue);
 	fprintf(stderr, "\n");
@@ -190,6 +179,7 @@ int remove_item(buffer_item *item){
 	return SUCCESS;
     }
 }
+
 //------------------------------------------------------------------------------
 // Producer():
 //------------------------------------------------------------------------------
@@ -267,7 +257,7 @@ bool str_isdigit(char *str){
 }
 
 
-void print_dequeue(array<buffer_item, BUFFER_SIZE> &dequeue){
+void print_dequeue(const array<buffer_item, BUFFER_SIZE> &dequeue){
     cerr << "[ ";
     for (auto &i : dequeue){
         if (i == empty_val)
@@ -339,9 +329,7 @@ int main(int argc, char *argv[]){
     vector<pthread_t> consumer_list(consumer_num);
 
 
-    // Create pthreads for Producer
-    
-
+    // Create pthreads for Producer and Consumers
     for (int i = 0; i < producer_num; i++)
 	pthread_create(&producer_list[i], nullptr, producer, nullptr);
 

@@ -27,7 +27,7 @@ using namespace std;
 
 #define SUCCESS (0)
 #define FAILURE (1)
-#define SLEEP_MAX (10)
+#define SLEEP_MAX (4)
 #define MAX_VAL (10)
 #define MIN_VAL (1)
 
@@ -42,7 +42,9 @@ buffer_item current_consumer{consumer_queue_end};
 //
 sem_t *producer_semaphore;
 sem_t *consumer_semaphore;
+timespec max_wait_time{.tv_sec = 5, .tv_nsec = 0};
 pthread_mutex_t buffer_mutex = PTHREAD_MUTEX_INITIALIZER;
+bool all_threads_active{true};
 
 //------------------------------------------------------------------------------
 // Function declarations
@@ -55,14 +57,14 @@ void print_dequeue(array<buffer_item, BUFFER_SIZE> &dequeue);
 //------------------------------------------------------------------------------
 
 void print_producer_message(buffer_item item, int position){
-    cerr << "Producer " << pthread_self() << "produced " << item
+    cerr << "Producer " << pthread_self() << " produced " << item
 	 << " at position " << position << "\t";
     print_dequeue(dequeue);
     cerr << endl;
 }
 
 void print_consumer_message(buffer_item item, int position){
-    cerr << "Consumer " << pthread_self() << "consumed " << item
+    cerr << "Consumer " << pthread_self() << " consumed " << item
 	 << " at position " << position << "\t";
     print_dequeue(dequeue);
     cerr << endl;
@@ -108,45 +110,34 @@ int find_closest_index(const array<buffer_item, BUFFER_SIZE> &dequeue){
 // the function returns 0. Otherwise it returns -1.
 //------------------------------------------------------------------------------
 int insert_item(buffer_item item){
-        
     if (dequeue_is_empty(dequeue)){
-	// Insert into the first slot.
+	// Add a value to the buffer at the beginning
 	dequeue.at(consumer_queue_end) = item;
-
-	// printf("Producer %lu produced %d at position %d\n",
-	//        pthread_self(), item, consumer_queue_end);
 	print_producer_message(item, consumer_queue_end);
-
-	current_producer = consumer_queue_end + 1;
 	return SUCCESS;
     }
-    else if (find_farthest_index(dequeue) == BUFFER_SIZE){
-	fprintf(stderr, "Error: Cannot insert another item into this queue.\n");
-	print_dequeue(dequeue);	
+    
+    int p_index = find_farthest_index(dequeue);
+    if (p_index == BUFFER_SIZE){
+	fprintf(stderr, "Producer %lu: Cannot add to dequeue (Dequeue Full)\t",
+		pthread_self());
+	print_dequeue(dequeue);
+	fprintf(stderr, "\n");
 	return FAILURE;
-    }    
-    
-    static bool same_distance = ((current_consumer - consumer_queue_end) ==
-				 (producer_queue_end - current_producer));
-    
-    if (same_distance){
-	// Remove the left most item, and then insert from the right.
-	// dequeue.at(current_consumer) = empty_val; // Consumer handles that
-	dequeue.at(current_producer++) = item;
-	// cerr << "Producer " << pthread_self() << "produced " << item
-	//      << " at position " << current_producer - 1 << "\t";
-	// print_dequeue(dequeue);
-	// cerr << endl;
-	print_producer_message(item, current_producer - 1);
+    }
+    // Now check if both producer and consumer have equal amount of index
+    // space:
+    int c_index = find_closest_index(dequeue);
+    if ((c_index - consumer_queue_end) == (producer_queue_end - p_index)){
+	// Add on the producer side and remove on the consumer side
+	dequeue.at(p_index) = item;
+	print_producer_message(item, p_index);
 	return SUCCESS;
     }
     else {
-	dequeue.at(current_producer++) = item;
-	// cout << "Producer " << pthread_self() << "produced " << item
-	//      << " at position " << current_producer - 1 << "\t";
-	// print_dequeue(dequeue);
-	// cout << endl;
-	print_producer_message(item, current_producer - 1);
+	// Normal operation
+	dequeue.at(p_index) = item;
+	print_producer_message(item, p_index);
 	return SUCCESS;
     }
 
@@ -157,24 +148,36 @@ int insert_item(buffer_item item){
 //------------------------------------------------------------------------------
 int remove_item(buffer_item *item){
     if (dequeue_is_empty(dequeue)){
-	fprintf(stderr, "ERROR: Cannot consume in a empty dequeue.\n");
-	print_dequeue(dequeue);
-	current_consumer = consumer_queue_end;
+	fprintf(stderr, "Consumer %lu: Cannot consume in a empty buffer\n",
+		pthread_self());
+	
+	return FAILURE;
+    }
+    
+    // Find closet value to consume
+    int c_index = find_closest_index(dequeue);
+    if (c_index == BUFFER_SIZE){
+	fprintf(stderr, "Consumer %lu: First check didn't work it seems. "
+		" The buffer is still empty.\n", pthread_self());
 	return FAILURE;
     }
 
-    static bool same_distance = ((current_consumer - consumer_queue_end) ==
-				 (producer_queue_end - current_producer));
-    if (same_distance){
-	// Remove the left most item, and then insert from the right.
-	*item = dequeue.at(current_consumer);
-	dequeue.at(current_consumer) = empty_val;
-	print_consumer_message(*item, current_consumer);
-	
+    // Now check producer_index as well.
+    int p_index = find_farthest_index(dequeue);
+    if ((c_index - consumer_queue_end) == (producer_queue_end - p_index)){
+	// Add on the producer side and REMOVE on the consumer side
+	*item = dequeue.at(c_index);
+	dequeue.at(c_index) = empty_val;
+	print_consumer_message(*item, c_index);
 	return SUCCESS;
     }
-
-    return FAILURE;
+    else {
+	// Same as the above case.
+	*item = dequeue.at(c_index);
+	dequeue.at(c_index) = empty_val;
+	print_consumer_message(*item, c_index);
+	return SUCCESS;
+    }
 }
 //------------------------------------------------------------------------------
 // Producer():
@@ -182,7 +185,7 @@ int remove_item(buffer_item *item){
 void * producer(void *arg){
     buffer_item item;
     int sleep_time, check;
-    while (true) {
+    while (all_threads_active) {
 	// Sleep for random period of time
 	// sem_wait(semaphore);
 	
@@ -195,29 +198,19 @@ void * producer(void *arg){
 	sleep(sleep_time);
 	// Generate random number:
 
-
-
 	item = rand() % MAX_VAL + MIN_VAL;
-	// Acquire the semaphore
-	check = insert_item(item);
-	
+	// Acquire the semaphore	
 	// Most of the issue comes here
-	sem_wait(producer_semaphore);
+	//sem_timedwait(producer_semaphore, max_wait_time);
+	sem_timedwait(producer_semaphore, &max_wait_time);
 	pthread_mutex_lock(&buffer_mutex);
-	if (!insert_item(item)){
-	    // printf("Producer %u: Produced %d at Position %d\t",
-	    // 	   (unsigned) pthread_self(), item, current_producer - 1);
-	    // print_dequeue(dequeue);
-	}
-	else
-	    cerr << "Something went wrong with insert_item\n";
-		
-
+	check = insert_item(item);	
 	// Release the mutex and then the semaphore
 	pthread_mutex_unlock(&buffer_mutex);
-	sem_post(producer_semaphore);
+	sem_post(consumer_semaphore);
     }
-    
+
+    return nullptr;
 }
 
 //------------------------------------------------------------------------------
@@ -226,37 +219,30 @@ void * producer(void *arg){
 void * consumer(void *arg){
     buffer_item item;
     int sleep_time;
-    while (true) {
+    while (all_threads_active) {
 	// Sleep for random period of time
 	// sem_wait(semaphore);
 	sleep_time = rand() % SLEEP_MAX;
 	pthread_mutex_lock(&buffer_mutex);
 	cerr << "Consumer " << pthread_self() << " sleeping for "
 	     << sleep_time << " seconds.\n";
-	pthread_mutex_lock(&buffer_mutex);
+	pthread_mutex_unlock(&buffer_mutex);
 	// sem_post(semaphore);
 	sleep(sleep_time);
-	// Acquire the semaphore
 
-	sem_wait(consumer_semaphore);
+
+	sem_timedwait(consumer_semaphore, &max_wait_time); // Semaphore gets stuck here
 	pthread_mutex_lock(&buffer_mutex);
-	if (!remove_item(&item)){
-	    printf("Consumer %u: Consumed %d at Position %d\t",
-		   (unsigned) pthread_self(), (int)item, current_consumer);
-	    // Now print array:
-	    print_dequeue(dequeue);
-	}
-	else
-	    cerr << "Something went wrong with remove_item\n";
-	// Release the lock
+	int return_code = remove_item(&item);
+
 	pthread_mutex_unlock(&buffer_mutex);
 	// Release the semaphore
-	sem_post(consumer_semaphore);
+	sem_post(producer_semaphore);
 
 
     }
 
-
+    return nullptr;
 }
 
 //------------------------------------------------------------------------------
@@ -349,7 +335,8 @@ int main(int argc, char *argv[]){
 	pthread_create(&consumer_list[i], nullptr, consumer, nullptr);
     
     sleep(sleep_time);
-
+    // Kill all threads:
+    all_threads_active = false;
     // Now close each list
     for (int i = 0; i < producer_num; i++)
 	pthread_join(producer_list[i], nullptr);

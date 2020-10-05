@@ -3,7 +3,11 @@
  * Created by Ulysses Carlos on 09/28/2020 at 09:00 PM
  * 
  * Homework3.c
- * 
+ * Implementation of Producer-Consumer Problem using pthreads, mutexs, and 
+ * semaphores. There's also color to differentiate between Producer and
+ * consumer.
+ * There's a C++ version in this directory that I used for testing; Please
+ * don't compile with it.
  * -----------------------------------------------------------------------------
  */
 
@@ -17,9 +21,10 @@
 #include <unistd.h>
 #include "Buffer.h"
 
+// Macros for program
 #define SUCCESS (0)
 #define FAILURE (1)
-#define SLEEP_MAX (5)
+#define SLEEP_MAX (3)
 #define MAX_VAL (16)
 #define MIN_VAL (1)
 
@@ -40,22 +45,25 @@ pthread_mutex_t buffer_mutex = PTHREAD_MUTEX_INITIALIZER;
 // Handles when to kill all producer and consumer threads
 bool all_threads_active = true;
 
-
 //------------------------------------------------------------------------------
 // Functions to print producer and consumer messages
 //------------------------------------------------------------------------------
 
 void print_producer_message(buffer_item item, int position){
+    fprintf(stderr, "\033[1;34m"); // Print blue for Producer
     fprintf(stderr, "Producer %lu: produced %d at dequeue[%d]\t",
 	    pthread_self(), item, position);  
     print_dequeue(dequeue);
+    fprintf(stderr, "\033[0m");
     fprintf(stderr, "\n");
 }
 
 void print_consumer_message(buffer_item item, int position){
+    fprintf(stderr, "\033[1;35m"); // Print Magenta for Consumer
     fprintf(stderr, "Consumer %lu: consumed %d at dequeue[%d]\t",
-	    pthread_self(), item, position);  
+	    pthread_self(), item, position);
     print_dequeue(dequeue);
+    fprintf(stderr, "\033[0m");
     fprintf(stderr, "\n");
 }
 
@@ -68,8 +76,6 @@ bool dequeue_is_empty(const buffer_item *dequeue){
     return true;
 }
 
-
-
 //------------------------------------------------------------------------------
 // find_farthest_index(): Search for the farthest index where the producer
 // can insert an item into the dequeue.
@@ -79,7 +85,6 @@ int find_farthest_index(const buffer_item *dequeue){
     for (int i = 0; i <= producer_queue_end; i++)
     	if (dequeue[i] == empty_val)
     	    return i;
-
     return BUFFER_SIZE; // If the dequeue is full.
 }
 
@@ -88,13 +93,11 @@ int find_farthest_index(const buffer_item *dequeue){
 // can remove an item from the dequeue.
 //------------------------------------------------------------------------------
 int find_closest_index(const buffer_item *dequeue){
-
     for (int i = consumer_queue_end; i < BUFFER_SIZE; i++) {
 	if (dequeue[i] != empty_val)
 	    return i;
     }
-
-    return BUFFER_SIZE;
+    return BUFFER_SIZE; // Buffer is empty
 }
 
 //------------------------------------------------------------------------------
@@ -112,9 +115,11 @@ int insert_item(buffer_item item){
     // auto dequeue_debug = dequeue; // For debugging
     int p_index = find_farthest_index(dequeue);
     if (p_index == BUFFER_SIZE){
+	fprintf(stderr, "\033[1;31m");	
 	fprintf(stderr, "Producer %lu: Cannot add to FULL dequeue\t",
 		pthread_self());
 	print_dequeue(dequeue);
+	fprintf(stderr, "\033[0m");
 	fprintf(stderr, "\n");
 	return FAILURE;
     }
@@ -141,9 +146,11 @@ int insert_item(buffer_item item){
 //------------------------------------------------------------------------------
 int remove_item(buffer_item *item){
     if (dequeue_is_empty(dequeue)){
+	fprintf(stderr, "\033[1;31m");	
 	fprintf(stderr, "Consumer %lu: EMPTY buffer: Skipping..\t",
 		pthread_self());
 	print_dequeue(dequeue);
+	fprintf(stderr, "\033[0m");	
 	fprintf(stderr, "\n");
 	return FAILURE;
     }
@@ -178,14 +185,14 @@ int remove_item(buffer_item *item){
 
 
 //------------------------------------------------------------------------------
-// Producer():
+// Producer(): Sleep for a random amount of time, and then insert a new item
+// in the queue.
 //------------------------------------------------------------------------------
 void * producer(void *arg){
     buffer_item item;
     int sleep_time, check;
     while (all_threads_active) {
 	// Sleep for random period of time
-	// sem_wait(semaphore);
 	
 	sleep_time = rand() % SLEEP_MAX + 1;
 	pthread_mutex_lock(&buffer_mutex);
@@ -193,14 +200,12 @@ void * producer(void *arg){
 		pthread_self(), sleep_time);
 	
 	pthread_mutex_unlock(&buffer_mutex);
-	// sem_post(semaphore);
+
 	sleep(sleep_time);
 	// Generate random number:
-
 	item = rand() % MAX_VAL + MIN_VAL;
-	// Acquire the semaphore	
-	// Most of the issue comes here
-	//sem_timedwait(producer_semaphore, max_wait_time);
+	
+	// Acquire the semaphore: Most of the problems occur here	
 	sem_timedwait(producer_semaphore, &max_wait_time);
 	pthread_mutex_lock(&buffer_mutex);
 	check = insert_item(item);	
@@ -213,14 +218,13 @@ void * producer(void *arg){
 }
 
 //------------------------------------------------------------------------------
-// Consumer(): 
+// Consumer(): Handle remove items from the queue
 //------------------------------------------------------------------------------
 void * consumer(void *arg){
     buffer_item item;
     int sleep_time;
     while (all_threads_active) {
 	// Sleep for random period of time
-	// sem_wait(semaphore);
 	sleep_time = rand() % SLEEP_MAX + 1;
 	pthread_mutex_lock(&buffer_mutex);
 	fprintf(stderr, "Consumer %lu: sleeping for %d seconds.\n",
@@ -230,16 +234,14 @@ void * consumer(void *arg){
 	// sem_post(semaphore);
 	sleep(sleep_time);
 
-
-	sem_timedwait(consumer_semaphore, &max_wait_time); // Semaphore gets stuck here
+	// Semaphore gets stuck at this point
+	sem_timedwait(consumer_semaphore, &max_wait_time);
 	pthread_mutex_lock(&buffer_mutex);
 	int return_code = remove_item(&item);
 
 	pthread_mutex_unlock(&buffer_mutex);
 	// Release the semaphore
 	sem_post(producer_semaphore);
-
-
     }
 
     return NULL;
@@ -263,17 +265,12 @@ void print_dequeue(const buffer_item *dequeue){
 }
 
 
-int main(int argc, char *argv[]){
-    /* Get command line arguments argv[1],argv[2],argv[3] */
-    /* Initialize buffer related synchronization tools */
-    /* 	Create producer threads based on the command line input */
-    /* 	    Create consumer threads based on the command line input */
-    /* 	    Sleep for user specified time based on the command line input */
-	
+int main(int argc, char *argv[]){	
     if (argc != 4){
-
+	fprintf(stderr, "\033[1;31m");
 	fprintf(stderr, "Usage: ./Homework3 [Sleep Time (s)] "
 		"[# of Producer Threads] [# of Consumer Threads]\n");
+	fprintf(stderr, "\033[0m");	
 	exit(EXIT_FAILURE);
     }
     
@@ -292,13 +289,17 @@ int main(int argc, char *argv[]){
 
 
     if (sleep_time < 0){
+	fprintf(stderr, "\033[1;31m");	
 	fprintf(stderr, "Error: Cannot have a negative sleep time.\n");
+	fprintf(stderr, "\033[0m");	
 	exit(EXIT_FAILURE);
     }
 
     if (producer_num < 1 || consumer_num < 1){
+	fprintf(stderr, "\033[1;31m");	
 	fprintf(stderr, "Error: There must be at least one producer and consumer"
 		" thread.\n");
+	fprintf(stderr, "\033[0m");	
 	exit(EXIT_FAILURE);
     }
 
@@ -308,7 +309,7 @@ int main(int argc, char *argv[]){
     
     //Initialize the semaphore and any mutexes:
     producer_semaphore = sem_open("HW3: Producer Semaphore",
-				  O_CREAT, 0666, BUFFER_SIZE);
+				  O_CREAT, 0666, 1);
     
     consumer_semaphore = sem_open("HW3: Consumer Semaphore",
 				  O_CREAT, 0666, 0);
@@ -319,7 +320,7 @@ int main(int argc, char *argv[]){
     // Now do the stuff
     srand(time(NULL));
 
-
+    fprintf(stderr, "Program will run for %d seconds...\n", sleep_time);
     fprintf(stderr, "Creating %d producers(s) and %d consumer(s).\n",
 	    producer_num, consumer_num);
     
@@ -337,7 +338,7 @@ int main(int argc, char *argv[]){
     
     sleep(sleep_time);
     
-    // Kill all threads by activating the boolean
+    // Kill all threads by activating the bool
     all_threads_active = false;
     
     // Now close each list
@@ -346,8 +347,8 @@ int main(int argc, char *argv[]){
 
     for (int i = 0; i < consumer_num; i++)
 	pthread_join(consumer_list[i], NULL);
-    // Sleep for specified time and exit
     
+    // Now exit.
     sem_destroy(producer_semaphore);
     sem_destroy(consumer_semaphore);
     fprintf(stdout, "\nComplete!\n");

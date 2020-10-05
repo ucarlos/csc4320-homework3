@@ -3,10 +3,11 @@
  * Created by Ulysses Carlos on 09/29/2020 at 02:39 PM
  * 
  * Homework3.cc
- * For this problem, I decided to test the program first in C in order to
+ * For this problem, I decided to test the program first in C++ in order to
  * detect any sort of segmentation faults and errors that would be irritating 
  * to debug in C. Outside of std::array, std::vector, and <iostream>, most
- * of the code is written in C.
+ * of the code is written in C and so it was easy to port. Please don't compile
+ * with the version using gcc.
  * -----------------------------------------------------------------------------
  */
 

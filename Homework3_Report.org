@@ -13,7 +13,13 @@
 * Homework
 ** Source Code
 #+begin_code
-\lstinputlisting[language=c++]{Homework3.c}
+\lstinputlisting[language=c++, firstline=13]{Homework3.c}
 
 #+end_code
 ** Screenshots
+#+caption: Homework Output
+#+attr_latex: :center true :placement[H]
+[[./Screenshots/Image_01.png]]
+#+caption: Homework Output (Cont.)
+#+attr_latex: :center true :placement[H]
+[[./Screenshots/Image_02.png]]

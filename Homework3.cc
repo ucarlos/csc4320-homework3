@@ -3,7 +3,10 @@
  * Created by Ulysses Carlos on 09/29/2020 at 02:39 PM
  * 
  * Homework3.cc
- * I will test everything in C++ then port it back to C
+ * For this problem, I decided to test the program first in C in order to
+ * detect any sort of segmentation faults and errors that would be irritating 
+ * to debug in C. Outside of std::array, std::vector, and <iostream>, most
+ * of the code is written in C.
  * -----------------------------------------------------------------------------
  */
 
@@ -28,7 +31,7 @@ using namespace std;
 #define SUCCESS (0)
 #define FAILURE (1)
 #define SLEEP_MAX (4)
-#define MAX_VAL (10)
+#define MAX_VAL (9)
 #define MIN_VAL (1)
 
 array<buffer_item, BUFFER_SIZE> dequeue;
@@ -36,14 +39,16 @@ array<buffer_item, BUFFER_SIZE> dequeue;
 const buffer_item producer_queue_end = BUFFER_SIZE - 1;
 const buffer_item consumer_queue_end = 0;
 
-buffer_item current_producer{consumer_queue_end};
-buffer_item current_consumer{consumer_queue_end};
-
-//
 sem_t *producer_semaphore;
 sem_t *consumer_semaphore;
+
+// Sets the maximum block time
 timespec max_wait_time{.tv_sec = 5, .tv_nsec = 0};
+
+// Prevent multiple producers from inserting at the same time
 pthread_mutex_t buffer_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+// Handles when to kill all producer and consumer threads
 bool all_threads_active{true};
 
 //------------------------------------------------------------------------------
@@ -57,15 +62,15 @@ void print_dequeue(array<buffer_item, BUFFER_SIZE> &dequeue);
 //------------------------------------------------------------------------------
 
 void print_producer_message(buffer_item item, int position){
-    cerr << "Producer " << pthread_self() << " produced " << item
-	 << " at position " << position << "\t";
+    cerr << "Producer " << pthread_self() << ": produced " << item
+	 << " at dequeue[" << position << "]\t";
     print_dequeue(dequeue);
     cerr << endl;
 }
 
 void print_consumer_message(buffer_item item, int position){
-    cerr << "Consumer " << pthread_self() << " consumed " << item
-	 << " at position " << position << "\t";
+    cerr << "Consumer " << pthread_self() << ": consumed " << item
+	 << " at dequeue[" << position << "]\t";
     print_dequeue(dequeue);
     cerr << endl;
 }
@@ -87,8 +92,9 @@ bool dequeue_is_empty(const array<buffer_item, BUFFER_SIZE> &deq){
 //------------------------------------------------------------------------------
 int find_farthest_index(const array<buffer_item, BUFFER_SIZE> &dequeue){
 
-    for (int i = producer_queue_end; i >= 0; i--)
-    	if (dequeue.at(i) != empty_val) return i + 1;
+    for (int i = 0; i <= producer_queue_end; i++)
+    	if (dequeue.at(i) == empty_val)
+    	    return i;
 
     return BUFFER_SIZE; // If the dequeue is full.
 }
@@ -99,10 +105,12 @@ int find_farthest_index(const array<buffer_item, BUFFER_SIZE> &dequeue){
 //------------------------------------------------------------------------------
 int find_closest_index(const array<buffer_item, BUFFER_SIZE> &dequeue){
 
-    for (int i = consumer_queue_end; i < dequeue.size(); i++)
-	if (dequeue.at(i) != empty_val) return i - 1;
+    for (int i = consumer_queue_end; i < dequeue.size(); i++) {
+	if (dequeue.at(i) != empty_val)
+	    return i;
+    }
 
-    return -1;
+    return BUFFER_SIZE;
 }
 
 //------------------------------------------------------------------------------
@@ -116,7 +124,8 @@ int insert_item(buffer_item item){
 	print_producer_message(item, consumer_queue_end);
 	return SUCCESS;
     }
-    
+
+    // auto dequeue_debug = dequeue; // For debugging
     int p_index = find_farthest_index(dequeue);
     if (p_index == BUFFER_SIZE){
 	fprintf(stderr, "Producer %lu: Cannot add to dequeue (Dequeue Full)\t",
@@ -148,12 +157,14 @@ int insert_item(buffer_item item){
 //------------------------------------------------------------------------------
 int remove_item(buffer_item *item){
     if (dequeue_is_empty(dequeue)){
-	fprintf(stderr, "Consumer %lu: Cannot consume in a empty buffer\n",
+	fprintf(stderr, "Consumer %lu: Empty buffer: Skipping..\t",
 		pthread_self());
-	
+	print_dequeue(dequeue);
+	fprintf(stderr, "\n");
 	return FAILURE;
     }
     
+    // auto dequeue_debug = dequeue; // For debugging
     // Find closet value to consume
     int c_index = find_closest_index(dequeue);
     if (c_index == BUFFER_SIZE){
@@ -189,10 +200,10 @@ void * producer(void *arg){
 	// Sleep for random period of time
 	// sem_wait(semaphore);
 	
-	sleep_time = rand() % SLEEP_MAX;
+	sleep_time = rand() % SLEEP_MAX + 1;
 	pthread_mutex_lock(&buffer_mutex);
-	cerr << "Producer " << pthread_self() << " "
-	     << "Sleeping for " << sleep_time << " seconds.\n";
+	cerr << "Producer " << pthread_self() << ": "
+	     << "sleeping for " << sleep_time << " seconds.\n";
 	pthread_mutex_unlock(&buffer_mutex);
 	// sem_post(semaphore);
 	sleep(sleep_time);
@@ -222,9 +233,9 @@ void * consumer(void *arg){
     while (all_threads_active) {
 	// Sleep for random period of time
 	// sem_wait(semaphore);
-	sleep_time = rand() % SLEEP_MAX;
+	sleep_time = rand() % SLEEP_MAX + 1;
 	pthread_mutex_lock(&buffer_mutex);
-	cerr << "Consumer " << pthread_self() << " sleeping for "
+	cerr << "Consumer " << pthread_self() << ": sleeping for "
 	     << sleep_time << " seconds.\n";
 	pthread_mutex_unlock(&buffer_mutex);
 	// sem_post(semaphore);
@@ -257,10 +268,13 @@ bool str_isdigit(char *str){
 
 
 void print_dequeue(array<buffer_item, BUFFER_SIZE> &dequeue){
-    cout << "[ ";
-    for (auto &i : dequeue)
-	cout << i << " ";
-    cout << "]";
+    cerr << "[ ";
+    for (auto &i : dequeue){
+        if (i == empty_val)
+            cerr << "_" << " ";
+        else cerr << i << " ";
+    }
+    cerr << "]";
 }
 
 int main(int argc, char *argv[]){
@@ -335,8 +349,10 @@ int main(int argc, char *argv[]){
 	pthread_create(&consumer_list[i], nullptr, consumer, nullptr);
     
     sleep(sleep_time);
-    // Kill all threads:
+    
+    // Kill all threads by activating the boolean
     all_threads_active = false;
+    
     // Now close each list
     for (int i = 0; i < producer_num; i++)
 	pthread_join(producer_list[i], nullptr);
@@ -347,4 +363,5 @@ int main(int argc, char *argv[]){
     
     sem_destroy(producer_semaphore);
     sem_destroy(consumer_semaphore);
+    fprintf(stdout, "\nComplete!\n");
 }
